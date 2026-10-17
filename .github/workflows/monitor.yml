@@ -1,0 +1,51 @@
+name: Bot sync monitor
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # GitHub puede retrasarlo 5-15 minutos en horas de mucha carga
+  workflow_dispatch:          # botón «Run workflow» o «gh workflow run monitor.yml» para probar
+
+permissions:
+  contents: write             # solo para guardar estado.json en este repositorio
+
+concurrency:
+  group: monitor              # una comprobación detrás de otra: nunca dos escribiendo el estado a la vez
+  cancel-in-progress: false
+
+jobs:
+  comprobar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Fijada a un commit concreto (v4): un cambio en la acción no puede llegar a los secretos sin revisarlo.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Comprobar el bot
+        env:
+          WHATSAPP_APP_ID: ${{ secrets.WHATSAPP_APP_ID }}
+          WHATSAPP_APP_SECRET: ${{ secrets.WHATSAPP_APP_SECRET }}
+          SMTP_SERVIDOR: ${{ secrets.SMTP_SERVIDOR }}
+          SMTP_PUERTO: ${{ secrets.SMTP_PUERTO }}
+          SMTP_USUARIO: ${{ secrets.SMTP_USUARIO }}
+          SMTP_CLAVE: ${{ secrets.SMTP_CLAVE }}
+          AVISOS_EMAIL: ${{ secrets.AVISOS_EMAIL }}
+          NOMBRE_BOT: ${{ secrets.NOMBRE_BOT }}
+          COMO_ARRANCAR: ${{ secrets.COMO_ARRANCAR }}
+          PAUSA_HASTA: ${{ vars.PAUSA_HASTA }}
+        run: python3 monitor.py --estado estado.json
+
+      # Solo hay commit si el estado cambia (o una vez cada 25 días): eso mantiene vivo el cron,
+      # que GitHub desactiva en repositorios públicos tras 60 días sin actividad.
+      - name: Guardar el estado
+        if: always()
+        run: |
+          if git diff --quiet -- estado.json; then echo "Estado sin cambios."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add estado.json
+          git commit -q -m "Actualiza estado"
+          for intento in 1 2 3; do
+            if git pull -q --rebase && git push -q; then echo "Estado guardado."; exit 0; fi
+            sleep 5
+          done
+          exit 1
