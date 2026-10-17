@@ -8,7 +8,9 @@ de WhatsApp, comprueba que esa dirección contesta en /salud y avisa por correo 
 
 Variables de entorno (secretos de GitHub Actions): WHATSAPP_APP_ID, WHATSAPP_APP_SECRET, SMTP_SERVIDOR,
 SMTP_PUERTO, SMTP_USUARIO, SMTP_CLAVE, AVISOS_EMAIL. Opcionales: NOMBRE_BOT y COMO_ARRANCAR (secretos, para
-personalizar los correos sin dejarlo en el código) y PAUSA_HASTA (variable del repo).
+personalizar los correos sin dejarlo en el código), NTFY_TEMA (secreto: además del correo, aviso push al móvil
+con la app ntfy) y PAUSA_HASTA (variable del repo). Cada ejecución comprueba RONDAS veces (2), separadas
+SEPARACION segundos (300): con el cron cada 10 minutos, el bot se comprueba cada 5.
 Sin dependencias externas. Nunca imprime secretos ni la dirección completa del bot.
 Sale con código 1 si no puede hacer su trabajo (falta configuración o el correo no sale): GitHub avisa entonces
 al dueño del repositorio de que la ejecución ha fallado.
@@ -16,6 +18,7 @@ al dueño del repositorio de que la ejecución ha fallado.
 import argparse
 import json
 import os
+import re
 import smtplib
 import ssl
 import sys
@@ -258,9 +261,9 @@ def correo_html(urgencia: str, titulo: str, filas: list, que_hacer: str, pie: st
     return "\n".join(texto), cuerpo
 
 
-PIE = ("Aviso del monitor externo (GitHub Actions). Comprueba cada 10 minutos, pero "
-       "GitHub puede retrasar cada comprobación entre 5 y 15 minutos: este aviso llega unos 20-30 minutos después del "
-       "cambio. Para pausarlo en un apagado intencionado, consulta el README del repositorio.")
+PIE = ("Aviso del monitor externo (GitHub Actions). Comprueba cada 5 minutos, pero GitHub puede retrasar "
+       "sus ejecuciones entre 5 y 15 minutos: este aviso llega unos 10-20 minutos después del cambio. Para pausarlo "
+       "en un apagado intencionado, consulta el README del repositorio.")
 
 
 def redactar(correo: dict, ahora: datetime, entorno: dict | None = None) -> tuple[str, str, str]:
@@ -274,7 +277,7 @@ def redactar(correo: dict, ahora: datetime, entorno: dict | None = None) -> tupl
         asunto = f"🟢 El bot vuelve a responder · estuvo caído {duracion(correo['duracion'])}"
         filas = [("Qué ha pasado", "El bot vuelve a contestar por la dirección que tiene Meta."),
                  ("Caído desde", hora(correo["desde"])), ("Vuelve a responder", hora(ahora)),
-                 ("Tiempo caído", f"unos {duracion(correo['duracion'])} (precisión de unos 10-20 minutos)")]
+                 ("Tiempo caído", f"unos {duracion(correo['duracion'])} (precisión de unos 5-15 minutos)")]
         texto, html = correo_html("ok", "El bot vuelve a responder", filas,
                                   "Nada urgente. Revisa si algún cliente escribió durante la caída y no recibió "
                                   "respuesta.", PIE, marca)
@@ -306,6 +309,29 @@ def enviar(entorno: dict, asunto: str, texto: str, html: str, smtp=smtplib.SMTP_
 
 # -- Programa -----------------------------------------------------------------------------------------------
 
+def avisar_movil(entorno: dict, asunto: str, texto: str, urgente: bool, abrir) -> bool:
+    """Notificación push con ntfy.sh (gratis, sin cuenta), solo si existe el secreto NTFY_TEMA.
+
+    El tema hace de contraseña: quien lo conozca puede leer los avisos, así que debe ser largo y aleatorio."""
+    tema = (entorno.get("NTFY_TEMA") or "").strip()
+    if not tema:
+        return False
+    if not re.fullmatch(r"[A-Za-z0-9_-]{20,64}", tema):
+        print("NTFY_TEMA no vale: usa entre 20 y 64 letras, números, - o _ (aleatorio). Aviso push no enviado.")
+        return False
+    cuerpo = json.dumps({"topic": tema, "title": asunto[:200], "message": texto[:1500],
+                         "priority": 5 if urgente else 3}).encode()
+    try:
+        with abrir(urllib.request.Request("https://ntfy.sh/", data=cuerpo, method="POST",
+                                          headers={"Content-Type": "application/json"}), timeout=15) as respuesta:
+            ok = 200 <= respuesta.status < 300
+    except (urllib.error.URLError, ValueError, TimeoutError, OSError) as error:
+        print(f"Aviso push NO enviado ({_tipo(error)}).")
+        return False
+    print("Aviso push enviado." if ok else "Aviso push NO enviado.")
+    return ok
+
+
 def leer_estado(ruta: str) -> dict:
     try:
         with open(ruta, encoding="utf-8") as archivo:
@@ -321,19 +347,15 @@ def guardar_estado(ruta: str, estado: dict) -> None:
         archivo.write("\n")
 
 
-def ejecutar(ruta: str, entorno: dict, ahora: datetime | None = None, abrir=None, dormir=time.sleep, smtp=smtplib.SMTP_SSL) -> int:
-    ahora = ahora or datetime.now(timezone.utc)
-    faltan = [nombre for nombre in SECRETOS if not entorno.get(nombre)]
-    if faltan:
-        print("Faltan secretos del repositorio: " + ", ".join(faltan))
-        return 1
+def ronda(ruta: str, entorno: dict, ahora: datetime, abrir, dormir, smtp) -> tuple[int, bool]:
+    """Una comprobación con su decisión y sus avisos. Devuelve (código de salida, en pausa)."""
     anterior = leer_estado(ruta)
     pausa = leer_pausa(entorno.get("PAUSA_HASTA", ""), ahora)
     if pausa and ahora < pausa:
         print(f"En pausa hasta {hora(pausa)} (hora de Madrid). No se comprueba nada.")
         resultado = None
     else:
-        resultado = comprobar(entorno, abrir or abridor(), dormir)
+        resultado = comprobar(entorno, abrir, dormir)
         if resultado["ok"]:
             print(f"El bot responde ({resultado['dominio']}).")
         else:
@@ -348,15 +370,45 @@ def ejecutar(ruta: str, entorno: dict, ahora: datetime | None = None, abrir=None
         except Exception as error:  # noqa: BLE001 - el detalle del servidor podría repetir datos de acceso
             print(f"El correo NO ha salido ({type(error).__name__}). Se reintentará en la próxima comprobación.")
             nuevo, codigo = {**anterior, "latido": nuevo["latido"]}, 1
+        avisar_movil(entorno, asunto, texto, correo["tipo"] != "vuelta", abrir)
     print(f"Estado: {nuevo['estado']} · fallos seguidos: {nuevo['fallos']}" + (f" · causa: {nuevo['causa']}" if nuevo["causa"] else ""))
     guardar_estado(ruta, nuevo)
+    return codigo, resultado is None
+
+
+def ejecutar(ruta: str, entorno: dict, ahora: datetime | None = None, abrir=None, dormir=time.sleep,
+             smtp=smtplib.SMTP_SSL, rondas: int = 1, separacion: int = 300) -> int:
+    """`rondas` comprobaciones separadas `separacion` segundos. `ahora` fijo solo en tests."""
+    faltan = [nombre for nombre in SECRETOS if not entorno.get(nombre)]
+    if faltan:
+        print("Faltan secretos del repositorio: " + ", ".join(faltan))
+        return 1
+    abrir, codigo = abrir or abridor(), 0
+    for numero in range(max(1, rondas)):
+        if numero:
+            dormir(separacion)
+            print(f"-- Comprobación {numero + 1} de {rondas}")
+        momento = ahora + timedelta(seconds=numero * separacion) if ahora else datetime.now(timezone.utc)
+        resultado, en_pausa = ronda(ruta, entorno, momento, abrir, dormir, smtp)
+        codigo = max(codigo, resultado)
+        if en_pausa:
+            break
     return codigo
+
+
+def _entero(texto, defecto: int, minimo: int, maximo: int) -> int:
+    try:
+        return min(maximo, max(minimo, int(texto)))
+    except (TypeError, ValueError):
+        return defecto
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--estado", default="estado.json", help="Archivo de estado entre ejecuciones")
-    sys.exit(ejecutar(parser.parse_args().estado, dict(os.environ)))
+    entorno = dict(os.environ)
+    sys.exit(ejecutar(parser.parse_args().estado, entorno, rondas=_entero(entorno.get("RONDAS"), 2, 1, 3),
+                      separacion=_entero(entorno.get("SEPARACION"), 300, 60, 400)))
 
 
 if __name__ == "__main__":

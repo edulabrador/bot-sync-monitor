@@ -15,7 +15,7 @@ concurrency:
 jobs:
   comprobar:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12          # dos comprobaciones separadas 5 minutos
     steps:
       # Fijada a un commit concreto (v4): un cambio en la acción no puede llegar a los secretos sin revisarlo.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -31,6 +31,7 @@ jobs:
           AVISOS_EMAIL: ${{ secrets.AVISOS_EMAIL }}
           NOMBRE_BOT: ${{ secrets.NOMBRE_BOT }}
           COMO_ARRANCAR: ${{ secrets.COMO_ARRANCAR }}
+          NTFY_TEMA: ${{ secrets.NTFY_TEMA }}
           PAUSA_HASTA: ${{ vars.PAUSA_HASTA }}
         run: python3 monitor.py --estado estado.json
 

@@ -8,7 +8,8 @@ puede avisar de su propia caída; esto corre fuera, en GitHub Actions. Inspirado
 
 ## Cómo funciona
 
-Cada 10 minutos, `monitor.py`:
+El cron se lanza cada 10 minutos y cada ejecución comprueba **dos veces, separadas 5 minutos**
+(`RONDAS`, `SEPARACION`), así que el bot se comprueba cada 5 minutos. En cada comprobación, `monitor.py`:
 
 1. Pregunta a Meta, solo lectura, a qué dirección manda los mensajes (`GET /{APP_ID}/subscriptions`).
 2. Llama a esa dirección cambiando `/whatsapp` por `/salud` (espera `200 {"estado": "ok"}`): 3 intentos,
@@ -22,7 +23,7 @@ Causas que distingue: Meta no accesible, Meta sin dirección activa, la direcci�
 «/salud responde pero sin worker» (503 `{"estado": "sin worker"}`). Cada correo dice qué hacer.
 
 **Retraso real:** GitHub retrasa los cron entre 5 y 15 minutos y hacen falta dos fallos, así que el correo
-rojo llega unos **20-30 minutos** después de la caída. No sirve para caídas de un par de minutos.
+rojo llega unos **10-20 minutos** después de la caída. No sirve para caídas de un par de minutos.
 
 **Si falla el propio monitor** (falta un secreto o el correo no sale), la ejecución termina en error y
 GitHub manda su correo de «Run failed» a la cuenta del repositorio. El correo pendiente se reintenta en la
@@ -46,6 +47,9 @@ Para pararlo sin fecha: `gh workflow disable monitor.yml` y, para volver, `gh wo
 En Settings → Secrets and variables → Actions: `WHATSAPP_APP_ID`, `WHATSAPP_APP_SECRET`, `SMTP_SERVIDOR`,
 `SMTP_PUERTO`, `SMTP_USUARIO`, `SMTP_CLAVE` y `AVISOS_EMAIL`. Opcionales, para personalizar los correos sin
 dejarlo en el código: `NOMBRE_BOT` (cabecera del correo) y `COMO_ARRANCAR` (qué abrir para encenderlo).
+`NTFY_TEMA` (opcional) manda además cada aviso como notificación push con [ntfy](https://ntfy.sh), gratis
+y sin cuenta: instala la app ntfy en el móvil y suscríbete a ese tema. El tema hace de contraseña (quien lo
+conozca lee los avisos), así que debe ser largo y aleatorio (20-64 letras, números, `-` o `_`).
 El correo sale por SMTP SSL. El script no imprime secretos ni la dirección del bot (como mucho
 `***.trycloudflare.com`). El workflow no se ejecuta con pull requests, así que una copia no ve los secretos.
 
