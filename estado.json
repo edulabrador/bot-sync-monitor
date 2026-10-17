@@ -1,9 +1,9 @@
 {
  "causa": "",
- "desde": "",
- "estado": "desconocido",
+ "desde": "2026-10-17T21:34:31+00:00",
+ "estado": "arriba",
  "fallos": 0,
- "latido": "",
+ "latido": "2026-10-17T21:34:31+00:00",
  "primer_fallo": "",
  "ultimo_correo": ""
 }
