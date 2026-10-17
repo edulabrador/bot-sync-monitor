@@ -2,7 +2,7 @@ name: Bot sync monitor
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # GitHub puede retrasarlo 5-15 minutos en horas de mucha carga
+    - cron: "3-59/10 * * * *"   # minutos 3, 13, 23…: las horas en punto van saturadas y GitHub puede saltarlas
   workflow_dispatch:          # botón «Run workflow» o «gh workflow run monitor.yml» para probar
 
 permissions:
