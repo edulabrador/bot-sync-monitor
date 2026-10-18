@@ -35,6 +35,7 @@ FALLOS_PARA_AVISAR = 2
 RECORDATORIO = timedelta(hours=6)
 LATIDO = timedelta(days=25)  # un commit al menos cada 25 días: GitHub apaga el cron tras 60 días sin actividad
 INTENTOS, ESPERA_ENTRE_INTENTOS, TIEMPO_MAXIMO = 3, 20, 10
+PRIORIDAD_PUSH = 4  # alta: suena y se ve; la misma para todas, para que el móvil las ordene por hora
 SECRETOS = ("WHATSAPP_APP_ID", "WHATSAPP_APP_SECRET", "SMTP_SERVIDOR", "SMTP_USUARIO", "SMTP_CLAVE", "AVISOS_EMAIL")
 NOMBRE_POR_DEFECTO, ARRANQUE_POR_DEFECTO = "Bot de mensajería", "el script de arranque del bot"
 
@@ -309,18 +310,20 @@ def enviar(entorno: dict, asunto: str, texto: str, html: str, smtp=smtplib.SMTP_
 
 # -- Programa -----------------------------------------------------------------------------------------------
 
-def avisar_movil(entorno: dict, asunto: str, texto: str, urgente: bool, abrir) -> bool:
+def avisar_movil(entorno: dict, asunto: str, texto: str, ahora: datetime, abrir) -> bool:
     """Notificación push con ntfy.sh (gratis, sin cuenta), solo si existe el secreto NTFY_TEMA.
 
-    El tema hace de contraseña: quien lo conozca puede leer los avisos, así que debe ser largo y aleatorio."""
+    El tema hace de contraseña: quien lo conozca puede leer los avisos, así que debe ser largo y aleatorio.
+    Todas van con la misma prioridad (alta) y la hora delante: Android ordena primero por prioridad, así que
+    mezclarlas desordenaría la lista en el móvil."""
     tema = (entorno.get("NTFY_TEMA") or "").strip()
     if not tema:
         return False
     if not re.fullmatch(r"[A-Za-z0-9_-]{20,64}", tema):
         print("NTFY_TEMA no vale: usa entre 20 y 64 letras, números, - o _ (aleatorio). Aviso push no enviado.")
         return False
-    cuerpo = json.dumps({"topic": tema, "title": asunto[:200], "message": texto[:1500],
-                         "priority": 5 if urgente else 3}).encode()
+    cuerpo = json.dumps({"topic": tema, "title": f"{madrid(ahora):%H:%M} · {asunto}"[:200], "message": texto[:1500],
+                         "priority": PRIORIDAD_PUSH}).encode()
     try:
         with abrir(urllib.request.Request("https://ntfy.sh/", data=cuerpo, method="POST",
                                           headers={"Content-Type": "application/json"}), timeout=15) as respuesta:
@@ -370,7 +373,7 @@ def ronda(ruta: str, entorno: dict, ahora: datetime, abrir, dormir, smtp) -> tup
         except Exception as error:  # noqa: BLE001 - el detalle del servidor podría repetir datos de acceso
             print(f"El correo NO ha salido ({type(error).__name__}). Se reintentará en la próxima comprobación.")
             nuevo, codigo = {**anterior, "latido": nuevo["latido"]}, 1
-        avisar_movil(entorno, asunto, texto, correo["tipo"] != "vuelta", abrir)
+        avisar_movil(entorno, asunto, texto, ahora, abrir)
     print(f"Estado: {nuevo['estado']} · fallos seguidos: {nuevo['fallos']}" + (f" · causa: {nuevo['causa']}" if nuevo["causa"] else ""))
     guardar_estado(ruta, nuevo)
     return codigo, resultado is None
