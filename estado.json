@@ -1,9 +1,9 @@
 {
- "causa": "",
- "desde": "2026-10-17T23:07:25+00:00",
- "estado": "arriba",
- "fallos": 0,
+ "causa": "no_responde",
+ "desde": "2026-10-18T01:26:22+00:00",
+ "estado": "abajo",
+ "fallos": 2,
  "latido": "2026-10-17T21:34:31+00:00",
- "primer_fallo": "",
- "ultimo_correo": "2026-10-17T22:58:32+00:00"
+ "primer_fallo": "2026-10-18T01:26:22+00:00",
+ "ultimo_correo": "2026-10-18T01:32:02+00:00"
 }
