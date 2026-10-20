@@ -24,10 +24,17 @@ Cloud Scheduler o cron de GitHub ──► GitHub Actions ──► monitor.py
 1. Pregunta a Meta, **solo lectura**, la suscripción de tu app (`GET /{APP_ID}/subscriptions`) y toma la
    dirección activa del campo `messages`.
 2. Llama a esa dirección cambiando `/whatsapp` por `/salud` (3 intentos separados 20 segundos).
-3. Cada ejecución comprueba dos veces, separadas 5 minutos. Avisa **solo cuando cambia el estado**:
-   - 🔴 «El bot no responde» tras **2 comprobaciones fallidas seguidas** (evita falsas alarmas).
-   - 🔴 «El bot sigue sin responder»: recordatorio como mucho cada 6 horas.
-   - 🟢 «El bot vuelve a responder», con cuánto tiempo estuvo caído.
+3. Si falla, lo **confirma 2 minutos después** en la misma ejecución (evita falsas alarmas por cortes de un
+   minuto). Avisa **solo cuando cambia el estado**:
+   - 🔴 «El bot no responde», con la causa probable y qué hacer.
+   - 🔴 «El bot sigue sin responder»: recordatorios a la 1 h, a las 3 h y luego cada 6 h.
+   - 🟢 «El bot vuelve a responder», con cuánto tiempo estuvo caído (y qué le pasó al ordenador, si el bot
+     lo cuenta: ver «Eventos del bot»).
+
+**Avisos de un vistazo.** El correo lleva todo el detalle; el móvil, dos líneas (qué pasa y qué hacer) con la
+hora delante, y al pulsarlo abre el historial del monitor. Las fechas se escriben como las dirías: «hoy a las
+12:15», «ayer a las 12:15», «el lunes 19 a las 12:15». De 00:00 a 08:00 (hora de Madrid) los recordatorios y los
+verdes llegan por correo sin sonar en el móvil; el primer rojo suena siempre.
 
 Distingue la causa probable: Meta no accesible, Meta sin dirección activa, la dirección no responde, o el
 servidor responde pero su proceso de trabajo está parado. Cada aviso dice qué hacer.
@@ -73,7 +80,7 @@ Opcionales, para personalizar los avisos sin que el texto quede en el código p�
 |---|---|
 | `NOMBRE_BOT` | Nombre que aparece en la cabecera del correo (por defecto «Bot de mensajería») |
 | `COMO_ARRANCAR` | Qué tienes que abrir para encender el bot (p. ej. «el acceso directo del escritorio») |
-| `NTFY_TEMA` | Avisos push al móvil (paso 4) |
+| `NTFY_TEMA` | Avisos push al móvil (paso 4) y eventos del bot |
 
 La clave de la app solo se usa para **leer** la suscripción; el monitor nunca cambia nada en Meta.
 
@@ -96,14 +103,14 @@ Todas las notificaciones van con la misma prioridad y la hora delante, para que 
 
 El cron de GitHub no es fiable: en repositorios nuevos o poco activos puede saltarse la mayoría de las
 ejecuciones (en una prueba real hizo 2 de 66 en una noche). Se queda como respaldo y **Google Cloud
-Scheduler** lanza el monitor cada 10 minutos exactos. La capa gratuita incluye 3 tareas al mes por cuenta
+Scheduler** lanza el monitor cada 5 minutos exactos. La capa gratuita incluye 3 tareas al mes por cuenta
 de facturación y no gasta créditos; necesitas un proyecto de Google Cloud con facturación activada.
 
 1. **Token de GitHub** (https://github.com/settings/personal-access-tokens/new): tipo *fine-grained*,
    caducidad 1 año, **Only select repositories** → solo tu copia de este repositorio, permisos →
    **Actions: Read and write** y nada más. Cópialo con el icono de copiar y no lo pegues en ningún otro sitio.
 2. **Tarea** (https://console.cloud.google.com/cloudscheduler, activa la API si lo pide) → **Crear tarea**:
-   - Frecuencia `*/10 * * * *`, la zona horaria que quieras.
+   - Frecuencia `*/5 * * * *` (cada 5 minutos; sigue siendo una sola tarea, así que gratis), la zona horaria que quieras.
    - Destino **HTTP**, método **POST**, URL
      `https://api.github.com/repos/<tu-usuario>/<tu-repositorio>/actions/workflows/monitor.yml/dispatches`
    - Cuerpo: `{"ref":"main"}`
@@ -113,6 +120,25 @@ de facturación y no gasta créditos; necesitas un proyecto de Google Cloud con 
    Logging muestra un error 401, el token está mal pegado o ha caducado: regenéralo y vuelve a pegarlo.
 
 Pon en tu calendario renovar el token antes de que caduque.
+
+## Eventos del bot (opcional): un solo aviso por incidente
+
+Si tu bot puede hacer una petición HTTP, que avise al monitor dejando un mensaje en el tema privado
+`<NTFY_TEMA>-ctl` de ntfy (no lo suscribas en el móvil: es solo para el monitor). Cuerpo de la petición
+`POST https://ntfy.sh/`:
+
+```json
+{"topic": "<NTFY_TEMA>-ctl", "message": "{\"tipo\": \"pausa\", \"cuando\": \"2026-10-20T20:00:00+02:00\"}"}
+```
+
+| `tipo` | Cuándo lo envía el bot | Qué hace el monitor |
+|---|---|---|
+| `pausa` | Al cerrarlo tú a propósito | No manda alertas de caída; un correo al día si sigue apagado; el verde, sin sonar |
+| `arranque` | Al encenderse, con `"causa"`: qué le pasó al ordenador | Quita la pausa y pone esa causa en el aviso verde |
+| `caida_avisada` | Si se detiene por un error y ya te avisó él | No repite el aviso rojo; los recordatorios y el verde siguen |
+
+ntfy guarda los mensajes 12 horas; el monitor apunta lo leído en `estado.json`. No envíes datos de clientes
+ni claves en estos eventos. Sin eventos, el monitor funciona igual.
 
 ## Uso diario
 
@@ -127,14 +153,18 @@ gh variable delete PAUSA_HASTA -R <tu-usuario>/<tu-repositorio>
 ```
 
 Para pararlo sin fecha: **Actions → Bot sync monitor → ⋯ → Disable workflow** (y *Enable* para volver).
+Si tu bot envía el evento `pausa` (ver arriba), basta con cerrarlo: no hace falta pausar el monitor.
+
+**Horas de silencio.** Variable `HORAS_SILENCIO` (por defecto `0-8`, hora de Madrid): en esas horas los
+recordatorios y los verdes no suenan en el móvil. `23-7` cruza la medianoche; `0-0` lo desactiva.
 
 **Si cambias una clave** (la del buzón o la de la app de Meta), actualiza el secreto correspondiente.
 
 ## Tiempos reales
 
-Con Cloud Scheduler el bot se comprueba cada 5 minutos y hacen falta 2 fallos seguidos, así que el aviso
-rojo llega **unos 10 minutos** después de la caída (unos 20-30 si solo usas el cron de GitHub). No está
-pensado para caídas de uno o dos minutos.
+Con Cloud Scheduler cada 5 minutos y la confirmación a los 2 minutos, el aviso rojo llega **unos 3-8
+minutos** después de la caída (20-30 o más si solo usas el cron de GitHub). Una ejecución con el bot
+funcionando dura unos segundos; con el bot caído, unos 3 minutos. Un corte de uno o dos minutos no avisa.
 
 ## Seguridad y privacidad
 

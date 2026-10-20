@@ -2,7 +2,7 @@ name: Bot sync monitor
 
 on:
   schedule:
-    - cron: "3-59/10 * * * *"   # minutos 3, 13, 23…: las horas en punto van saturadas y GitHub puede saltarlas
+    - cron: "3-59/10 * * * *"   # respaldo de Cloud Scheduler; fuera de la hora en punto, que GitHub satura
   workflow_dispatch:          # botón «Run workflow» o «gh workflow run monitor.yml» para probar
 
 permissions:
@@ -15,7 +15,7 @@ concurrency:
 jobs:
   comprobar:
     runs-on: ubuntu-latest
-    timeout-minutes: 12          # dos comprobaciones separadas 5 minutos
+    timeout-minutes: 8           # una comprobación y, si falla, su confirmación 2 minutos después
     steps:
       # Fijada a un commit concreto (v4): un cambio en la acción no puede llegar a los secretos sin revisarlo.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -33,6 +33,7 @@ jobs:
           COMO_ARRANCAR: ${{ secrets.COMO_ARRANCAR }}
           NTFY_TEMA: ${{ secrets.NTFY_TEMA }}
           PAUSA_HASTA: ${{ vars.PAUSA_HASTA }}
+          HORAS_SILENCIO: ${{ vars.HORAS_SILENCIO }}
         run: python3 monitor.py --estado estado.json
 
       # Solo hay commit si el estado cambia (o una vez cada 25 días): eso mantiene vivo el cron,
