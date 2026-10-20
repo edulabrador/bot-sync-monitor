@@ -355,7 +355,7 @@ def correo_html(urgencia: str, titulo: str, filas: list, que_hacer: str, pie: st
 
 PIE = ("Aviso del monitor externo (GitHub Actions). Comprueba el bot cada 5 minutos y confirma cada fallo 2 "
        "minutos después: los avisos llegan unos 5-10 minutos después del cambio. Si vas a apagarlo a propósito, "
-       "cierra antes la ventana del bot y no recibirás avisos de caída.")
+       "detenlo de la forma que avisa al monitor (o pausa el monitor) y no recibirás avisos de caída.")
 SIGUIENTE = ("Al recuperarse (🟢). Si sigue caído: recordatorios a la 1 h, a las 3 h y luego cada 6 h "
              "(de 00:00 a 08:00 llegan por correo sin sonar en el móvil).")
 
@@ -384,8 +384,8 @@ def redactar(correo: dict, ahora: datetime, entorno: dict | None = None) -> dict
         return {"asunto": asunto, "texto": texto, "html": html, "push_titulo": "🟢 El bot vuelve a responder",
                 "push_texto": push}
     if tipo == "apagado":
-        asunto = f"🔵 El bot sigue apagado · lo cerraste {desde}"
-        filas = [("Qué pasa", "El bot sigue apagado desde que cerraste su ventana. Los clientes que escriban no "
+        asunto = f"🔵 El bot sigue apagado · lo apagaste {desde}"
+        filas = [("Qué pasa", "El bot sigue apagado desde que lo apagaste a propósito. Los clientes que escriban no "
                               "reciben respuesta hasta que lo enciendas."),
                  ("Apagado desde", desde), ("Tiempo apagado", tiempo),
                  ("Siguiente aviso", "Al encenderlo (🟢), o mañana si sigue apagado. Sin avisos en el móvil.")]
