@@ -1,64 +1,173 @@
 # bot-sync-monitor
 
-Monitor externo («dead man's switch») para un bot de WhatsApp Cloud API que corre en un ordenador propio
-detrás de un túnel con dirección cambiante. Avisa por correo si el bot deja de responder: ordenador apagado
-o suspendido, proceso cerrado, sin internet, túnel caído o Meta apuntando a una dirección muerta. Un bot no
-puede avisar de su propia caída; esto corre fuera, en GitHub Actions. Inspirado en
-[Upptime](https://github.com/upptime/upptime), reducido a un script sin dependencias.
+Vigilante externo y gratuito («dead man's switch») para un bot de **WhatsApp Cloud API** que corre en tu
+propio ordenador detrás de un túnel cuya dirección cambia en cada arranque (por ejemplo, un túnel rápido de
+Cloudflare). Te avisa por **correo** y, si quieres, con una **notificación push** en el móvil cuando el bot
+deja de responder: ordenador apagado o suspendido, programa cerrado, sin internet, túnel caído o Meta
+apuntando a una dirección que ya no existe. Un bot no puede avisar de su propia caída: esto corre fuera.
+
+- **Coste: 0 €.** GitHub Actions es gratis en repositorios públicos, ntfy no necesita cuenta y Google Cloud
+  Scheduler (opcional) incluye 3 tareas gratis al mes.
+- **Sin dependencias:** un solo script de Python (`monitor.py`) y un workflow.
+- **Sin datos tuyos en el código:** todo lo privado va en secretos cifrados de GitHub.
+- Inspirado en [Upptime](https://github.com/upptime/upptime), reducido a lo mínimo para direcciones dinámicas.
 
 ## Cómo funciona
 
-El cron se lanza cada 10 minutos y cada ejecución comprueba **dos veces, separadas 5 minutos**
-(`RONDAS`, `SEPARACION`), así que el bot se comprueba cada 5 minutos. En cada comprobación, `monitor.py`:
-
-1. Pregunta a Meta, solo lectura, a qué dirección manda los mensajes (`GET /{APP_ID}/subscriptions`).
-2. Llama a esa dirección cambiando `/whatsapp` por `/salud` (espera `200 {"estado": "ok"}`): 3 intentos,
-   separados 20 segundos.
-3. Guarda el resultado en `estado.json` y avisa **solo cuando cambia**:
-   - 🔴 «El bot no responde» tras **2 comprobaciones fallidas seguidas** (evita falsas alarmas).
-   - 🔴 «El bot sigue sin responder»: un recordatorio como mucho cada 6 horas.
-   - 🟢 «El bot vuelve a responder», con cuánto tiempo estuvo caído.
-
-Causas que distingue: Meta no accesible, Meta sin dirección activa, la dirección no responde y
-«/salud responde pero sin worker» (503 `{"estado": "sin worker"}`). Cada correo dice qué hacer.
-
-**Retraso real:** GitHub retrasa los cron entre 5 y 15 minutos y hacen falta dos fallos, así que el correo
-rojo llega unos **10-20 minutos** después de la caída. No sirve para caídas de un par de minutos.
-
-**Si falla el propio monitor** (falta un secreto o el correo no sale), la ejecución termina en error y
-GitHub manda su correo de «Run failed» a la cuenta del repositorio. El correo pendiente se reintenta en la
-siguiente ejecución.
-
-## Pausa (apagados intencionados)
-
-Pausa con fin automático (hora de Madrid), para no olvidarte de reactivarlo:
-
-```bash
-gh variable set PAUSA_HASTA --body "2026-10-20 08:00"
-gh variable delete PAUSA_HASTA
+```
+Cloud Scheduler o cron de GitHub ──► GitHub Actions ──► monitor.py
+                                                         1. Pregunta a Meta a qué dirección manda los mensajes
+                                                         2. Llama a esa dirección en /salud
+                                                         3. Compara con estado.json y avisa solo si cambia
 ```
 
-Con una fecha sola (`2026-10-20`) la pausa dura hasta el final de ese día. Al terminar vuelve a vigilar solo.
-Para pararlo sin fecha: `gh workflow disable monitor.yml` y, para volver, `gh workflow enable monitor.yml`
-(desde una copia del repositorio o añadiendo `-R <usuario>/bot-sync-monitor`).
+1. Pregunta a Meta, **solo lectura**, la suscripción de tu app (`GET /{APP_ID}/subscriptions`) y toma la
+   dirección activa del campo `messages`.
+2. Llama a esa dirección cambiando `/whatsapp` por `/salud` (3 intentos separados 20 segundos).
+3. Cada ejecución comprueba dos veces, separadas 5 minutos. Avisa **solo cuando cambia el estado**:
+   - 🔴 «El bot no responde» tras **2 comprobaciones fallidas seguidas** (evita falsas alarmas).
+   - 🔴 «El bot sigue sin responder»: recordatorio como mucho cada 6 horas.
+   - 🟢 «El bot vuelve a responder», con cuánto tiempo estuvo caído.
 
-## Secretos
+Distingue la causa probable: Meta no accesible, Meta sin dirección activa, la dirección no responde, o el
+servidor responde pero su proceso de trabajo está parado. Cada aviso dice qué hacer.
 
-En Settings → Secrets and variables → Actions: `WHATSAPP_APP_ID`, `WHATSAPP_APP_SECRET`, `SMTP_SERVIDOR`,
-`SMTP_PUERTO`, `SMTP_USUARIO`, `SMTP_CLAVE` y `AVISOS_EMAIL`. Opcionales, para personalizar los correos sin
-dejarlo en el código: `NOMBRE_BOT` (cabecera del correo) y `COMO_ARRANCAR` (qué abrir para encenderlo).
-`NTFY_TEMA` (opcional) manda además cada aviso como notificación push con [ntfy](https://ntfy.sh), gratis
-y sin cuenta: instala la app ntfy en el móvil y suscríbete a ese tema. El tema hace de contraseña (quien lo
-conozca lee los avisos), así que debe ser largo y aleatorio (20-64 letras, números, `-` o `_`).
-El correo sale por SMTP SSL. El script no imprime secretos ni la dirección del bot (como mucho
-`***.trycloudflare.com`). El workflow no se ejecuta con pull requests, así que una copia no ve los secretos.
+## Qué necesita tu bot
+
+Un único punto de salud público junto al webhook:
+
+| Petición | Respuesta si va bien | Respuesta si está parado por dentro |
+|---|---|---|
+| `GET https://<tu-direccion>/salud` | `200` con `{"estado": "ok"}` | `503` con `{"estado": "sin worker"}` |
+
+Si el webhook de Meta termina en `/whatsapp`, el monitor llama a la misma dirección con `/salud`. Si termina
+en otra ruta, añade `/salud` al final de esa ruta. Cualquier otra respuesta, o ninguna, cuenta como caída.
+
+## Puesta en marcha (unos 15 minutos)
+
+### 1. Copia el repositorio
+
+Pulsa **Fork** (o descarga los archivos y súbelos a un repositorio nuevo). Debe ser **público** para que
+GitHub Actions sea gratis e ilimitado; en uno privado gastaría los minutos gratuitos en pocos días. No
+subas nunca un archivo `.env` ni claves: todo lo privado va en el paso 2.
+
+En tu copia, ve a **Actions** y pulsa **«I understand my workflows, go ahead and enable them»**.
+
+### 2. Crea los secretos
+
+**Settings → Secrets and variables → Actions → New repository secret**, uno por fila:
+
+| Secreto | Qué es | Dónde se consigue |
+|---|---|---|
+| `WHATSAPP_APP_ID` | Identificador de tu app de Meta | developers.facebook.com → tu app → Configuración → Básica |
+| `WHATSAPP_APP_SECRET` | Clave secreta de esa app | En la misma página («Clave secreta de la app») |
+| `SMTP_SERVIDOR` | Servidor de correo saliente | Tu proveedor de correo (p. ej. `smtp.tudominio.com`) |
+| `SMTP_PUERTO` | Puerto SSL | Normalmente `465` |
+| `SMTP_USUARIO` | Buzón que envía los avisos | Un buzón tuyo, mejor uno solo para avisos |
+| `SMTP_CLAVE` | Contraseña de ese buzón | La del buzón o una contraseña de aplicación |
+| `AVISOS_EMAIL` | Quién recibe los avisos | Tu correo |
+
+Opcionales, para personalizar los avisos sin que el texto quede en el código público:
+
+| Secreto | Para qué |
+|---|---|
+| `NOMBRE_BOT` | Nombre que aparece en la cabecera del correo (por defecto «Bot de mensajería») |
+| `COMO_ARRANCAR` | Qué tienes que abrir para encender el bot (p. ej. «el acceso directo del escritorio») |
+| `NTFY_TEMA` | Avisos push al móvil (paso 4) |
+
+La clave de la app solo se usa para **leer** la suscripción; el monitor nunca cambia nada en Meta.
+
+### 3. Pruébalo
+
+**Actions → Bot sync monitor → Run workflow.** Con el bot encendido debe terminar en verde, decir
+«El bot responde (\*\*\*.trycloudflare.com)» y no mandar nada. Para probar el aviso, apaga el bot y lánzalo
+dos veces: llegará el correo rojo; enciéndelo y lánzalo otra vez: llegará el verde.
+
+### 4. Avisos push al móvil (opcional, gratis, sin cuenta)
+
+1. Inventa un tema largo y aleatorio, de 20 a 64 letras, números, `-` o `_`. **Es la contraseña de tus
+   avisos**: quien lo conozca puede leerlos, así que no uses palabras ni nombres.
+2. Instala la app **ntfy** (Android o iPhone), pulsa **+** y suscríbete a ese tema en `ntfy.sh`.
+3. Guárdalo como secreto `NTFY_TEMA`.
+
+Todas las notificaciones van con la misma prioridad y la hora delante, para que el móvil las ordene por hora.
+
+### 5. Lanzamiento fiable cada 10 minutos (recomendado, gratis)
+
+El cron de GitHub no es fiable: en repositorios nuevos o poco activos puede saltarse la mayoría de las
+ejecuciones (en una prueba real hizo 2 de 66 en una noche). Se queda como respaldo y **Google Cloud
+Scheduler** lanza el monitor cada 10 minutos exactos. La capa gratuita incluye 3 tareas al mes por cuenta
+de facturación y no gasta créditos; necesitas un proyecto de Google Cloud con facturación activada.
+
+1. **Token de GitHub** (https://github.com/settings/personal-access-tokens/new): tipo *fine-grained*,
+   caducidad 1 año, **Only select repositories** → solo tu copia de este repositorio, permisos →
+   **Actions: Read and write** y nada más. Cópialo con el icono de copiar y no lo pegues en ningún otro sitio.
+2. **Tarea** (https://console.cloud.google.com/cloudscheduler, activa la API si lo pide) → **Crear tarea**:
+   - Frecuencia `*/10 * * * *`, la zona horaria que quieras.
+   - Destino **HTTP**, método **POST**, URL
+     `https://api.github.com/repos/<tu-usuario>/<tu-repositorio>/actions/workflows/monitor.yml/dispatches`
+   - Cuerpo: `{"ref":"main"}`
+   - Encabezados: `Accept: application/vnd.github+json`, `Content-Type: application/json` y
+     `Authorization: Bearer <tu-token>` (con un espacio tras `Bearer`).
+3. Pulsa **Forzar ejecución**. En **Actions** debe aparecer una ejecución nueva al momento. Si Cloud
+   Logging muestra un error 401, el token está mal pegado o ha caducado: regenéralo y vuelve a pegarlo.
+
+Pon en tu calendario renovar el token antes de que caduque.
+
+## Uso diario
+
+**Apagados intencionados.** Pausa con fin automático (hora de Madrid), para no olvidarte de reactivarlo:
+**Settings → Secrets and variables → Actions → Variables → New repository variable**, nombre
+`PAUSA_HASTA`, valor `2026-10-20 08:00` (o solo `2026-10-20` para todo el día). Al llegar esa hora vuelve a
+vigilar solo; bórrala para reanudar antes. Desde la terminal:
+
+```bash
+gh variable set PAUSA_HASTA --body "2026-10-20 08:00" -R <tu-usuario>/<tu-repositorio>
+gh variable delete PAUSA_HASTA -R <tu-usuario>/<tu-repositorio>
+```
+
+Para pararlo sin fecha: **Actions → Bot sync monitor → ⋯ → Disable workflow** (y *Enable* para volver).
+
+**Si cambias una clave** (la del buzón o la de la app de Meta), actualiza el secreto correspondiente.
+
+## Tiempos reales
+
+Con Cloud Scheduler el bot se comprueba cada 5 minutos y hacen falta 2 fallos seguidos, así que el aviso
+rojo llega **unos 10 minutos** después de la caída (unos 20-30 si solo usas el cron de GitHub). No está
+pensado para caídas de uno o dos minutos.
+
+## Seguridad y privacidad
+
+- Ningún dato privado va en el código: credenciales, nombre de tu negocio y textos personalizados son
+  secretos cifrados. GitHub los oculta en los registros y nadie, ni tú, puede volver a leerlos.
+- El script nunca imprime secretos ni la dirección de tu bot (como mucho `***.trycloudflare.com`).
+- El workflow no se ejecuta con *pull requests*: quien copie el repositorio no puede llegar a tus secretos.
+- La acción de terceros (`actions/checkout`) va fijada a un commit concreto.
+- El repositorio es público: cualquiera puede ver el código y el historial de `estado.json` (a qué horas
+  estuvo caído «un bot»), pero no de quién es el bot ni su dirección. No pongas datos personales en
+  descripciones, temas ni mensajes de commit.
+- Protege tu cuenta de GitHub con verificación en dos pasos: guarda la clave de tu app de Meta.
 
 ## Que no se apague solo
 
-GitHub desactiva los cron de los repositorios públicos tras 60 días sin actividad. `estado.json` se
-commitea cuando cambia el estado y, como mínimo, cada 25 días (campo `latido`), así que siempre hay
-actividad. Si aun así se desactivara, GitHub avisa por correo y se reactiva con `gh workflow enable`.
+GitHub desactiva los cron de los repositorios públicos tras 60 días sin actividad. `estado.json` se guarda
+cuando cambia el estado y, como mínimo, cada 25 días (campo `latido`), así que siempre hay actividad. Con
+Cloud Scheduler da igual: lanza el workflow por su cuenta.
 
-## Coste
+## Problemas frecuentes
 
-0 €: en repositorios públicos los minutos de GitHub Actions son gratuitos.
+| Síntoma | Causa y solución |
+|---|---|
+| La ejecución termina en rojo y GitHub te escribe «Run failed» | Falta un secreto o el correo no sale: el registro dice cuál. El aviso pendiente se reintenta solo. |
+| «Meta no accesible» | Fallo pasajero de Meta, o la clave de la app cambió: actualiza `WHATSAPP_APP_SECRET`. |
+| «Meta no tiene ninguna dirección activa» | El webhook de la app está vacío o sin el campo `messages`: arranca el bot para que lo registre. |
+| No aparecen ejecuciones | Workflow desactivado (actívalo en Actions) o la tarea de Cloud Scheduler da 401 (renueva el token). |
+| Llegan avisos estando el bot encendido | Comprueba que `/salud` responde desde fuera de tu red con `{"estado": "ok"}`. |
+
+## Contenido
+
+| Archivo | Qué es |
+|---|---|
+| `monitor.py` | El vigilante (Python 3.10+, solo biblioteca estándar) |
+| `.github/workflows/monitor.yml` | Cuándo y cómo se ejecuta |
+| `estado.json` | Último estado conocido (lo actualiza el propio workflow) |
