@@ -1,9 +1,14 @@
 {
+ "aviso_bot": "",
  "causa": "no_responde",
- "desde": "2026-10-19T10:15:12+00:00",
- "estado": "abajo",
+ "contexto": "",
+ "desde": "2026-10-20T09:55:11+00:00",
+ "estado": "apagado",
  "fallos": 2,
  "latido": "2026-10-17T21:34:31+00:00",
+ "ntfy_ultimo": "oip35MYz7nC0",
+ "pausa_bot": "2026-10-20T09:55:11+00:00",
  "primer_fallo": "2026-10-19T10:15:12+00:00",
- "ultimo_correo": "2026-10-20T04:20:10+00:00"
+ "recordatorios": 0,
+ "ultimo_correo": "2026-10-20T09:56:37+00:00"
 }
