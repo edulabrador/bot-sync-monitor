@@ -1,14 +1,14 @@
 {
  "aviso_bot": "",
- "causa": "",
+ "causa": "no_responde",
  "contexto": "",
- "desde": "2026-10-21T23:35:09+00:00",
- "estado": "arriba",
- "fallos": 0,
+ "desde": "2026-10-22T01:50:11+00:00",
+ "estado": "abajo",
+ "fallos": 2,
  "latido": "2026-10-17T21:34:31+00:00",
  "ntfy_ultimo": "QCscnBZJZ92W",
  "pausa_bot": "",
- "primer_fallo": "",
+ "primer_fallo": "2026-10-22T01:50:11+00:00",
  "recordatorios": 0,
- "ultimo_correo": "2026-10-21T23:30:16+00:00"
+ "ultimo_correo": "2026-10-22T01:52:52+00:00"
 }
