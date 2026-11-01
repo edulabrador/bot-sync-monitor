@@ -1,5 +1,10 @@
 # bot-sync-monitor
 
+[![Tests](https://github.com/edulabrador/bot-sync-monitor/actions/workflows/tests.yml/badge.svg)](https://github.com/edulabrador/bot-sync-monitor/actions/workflows/tests.yml)
+![Python](https://img.shields.io/badge/python-3.10%2B%20%C2%B7%20sin%20dependencias-3776ab?logo=python&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/corre%20en-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)
+![Coste](https://img.shields.io/badge/coste-0%20%E2%82%AC-22c55e)
+
 Vigilante externo y gratuito («dead man's switch») para un bot de **WhatsApp Cloud API** que corre en tu
 propio ordenador detrás de un túnel cuya dirección cambia en cada arranque (por ejemplo, un túnel rápido de
 Cloudflare). Te avisa por **correo** y, si quieres, con una **notificación push** en el móvil cuando el bot
@@ -12,15 +17,37 @@ apuntando a una dirección que ya no existe. Un bot no puede avisar de su propia
   los pasos de git y un workflow.
 - **Sin datos tuyos en el código ni en el historial:** todo lo privado va en secretos cifrados de GitHub.
 - **Con tests:** `python -m unittest discover -s tests -v` (también corren solos en cada push).
+- **Estado:** funcional, con tests en CI (Python 3.10 y 3.13). Sin versiones publicadas: se usa desde `main`.
 - Inspirado en [Upptime](https://github.com/upptime/upptime), reducido a lo mínimo para direcciones dinámicas.
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><img src="docs/img/correo-rojo.png" alt="Correo de ejemplo: el bot no responde"></td>
+    <td width="50%" valign="top"><img src="docs/img/correo-verde.png" alt="Correo de ejemplo: el bot vuelve a responder"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>🔴 Aviso de caída</sub></td>
+    <td align="center"><sub>🟢 Aviso de vuelta</sub></td>
+  </tr>
+</table>
+
+<sub>Correos generados con la función <code>redactar()</code> de <code>monitor.py</code> a partir de datos
+ficticios (nombre del bot, horas y causa inventados).</sub>
 
 ## Cómo funciona
 
-```
-Cloud Scheduler o cron de GitHub ──► GitHub Actions ──► monitor.py
-                                                         1. Pregunta a Meta a qué dirección manda los mensajes
-                                                         2. Llama a esa dirección en /salud
-                                                         3. Compara con el último estado y avisa solo si cambia
+```mermaid
+flowchart LR
+    C["Cloud Scheduler cada 5 min<br/>o cron de GitHub (respaldo)"] --> A["GitHub Actions<br/>monitor.yml"]
+    A --> W["scripts/workflow.sh<br/>trae estado.json (rama estado)"]
+    W --> M["monitor.py"]
+    M -->|"1. suscripción de la app (solo lectura)"| META["Meta Graph API"]
+    META -->|"dirección del webhook"| M
+    M -->|"2. GET .../salud (3 intentos)"| BOT["Tu bot<br/>detrás del túnel"]
+    EV["ntfy: eventos del bot<br/>(tema -ctl, opcional)"] --> M
+    M -->|"3. solo si cambia el estado"| E["Correo SMTP"]
+    M -->|"3. solo si cambia el estado"| P["Push ntfy<br/>con «Ya lo sé»"]
+    M --> G["workflow.sh guarda estado.json<br/>y avisa a healthchecks.io"]
 ```
 
 1. Pregunta a Meta, **solo lectura**, la suscripción de tu app (`GET /{APP_ID}/subscriptions`) y toma la
@@ -36,6 +63,22 @@ Cloud Scheduler o cron de GitHub ──► GitHub Actions ──► monitor.py
      lo cuenta: ver «Eventos del bot»).
    - 🔵 «No puedo comprobar el bot» si Meta no contesta al monitor durante 30 minutos. **No cuenta como
      caída**: sin Meta no se sabe si el bot responde, y casi siempre es un fallo pasajero de Meta o de GitHub.
+
+Los estados que guarda el monitor y los avisos que manda al pasar de uno a otro:
+
+```mermaid
+stateDiagram-v2
+    [*] --> arriba
+    arriba --> abajo: falla y se confirma 2 min después, aviso rojo
+    abajo --> abajo: recordatorios a 1 h, 3 h, 9 h, 15 h, 21 h y luego diarios
+    abajo --> arriba: vuelve a responder, aviso verde
+    abajo --> apagado: «Ya lo sé» o evento pausa del bot
+    arriba --> apagado: deja de responder tras un evento pausa, sin aviso rojo
+    apagado --> apagado: un correo al día, sin push
+    apagado --> arriba: vuelve a responder, aviso verde sin sonar
+    arriba --> pausa: variable PAUSA_HASTA
+    pausa --> arriba: termina la pausa y responde
+```
 
 **Avisos de un vistazo.** El correo lleva todo el detalle; el móvil, dos líneas (qué pasa y qué hacer) con la
 hora delante, y al pulsarlo abre el historial del monitor. Las fechas se escriben como las dirías: «hoy a las
@@ -153,6 +196,9 @@ desactivas el monitor a propósito, pausa también el check en healthchecks.io.
 
 ## Eventos del bot (opcional): un solo aviso por incidente
 
+<details>
+<summary>Formato de los eventos y qué hace el monitor con cada uno</summary>
+
 Si tu bot puede hacer una petición HTTP, que avise al monitor dejando un mensaje en el tema privado
 `<NTFY_TEMA>-ctl` de ntfy (no lo suscribas en el móvil: es solo para el monitor). Cuerpo de la petición
 `POST https://ntfy.sh/`:
@@ -175,6 +221,8 @@ Si tu bot puede hacer una petición HTTP, que avise al monitor dejando un mensaj
 - ntfy guarda los mensajes 12 horas. La `causa` de un arranque **no se guarda en el repositorio** (que es
   público): el monitor la vuelve a leer de ntfy hasta que el bot responde. Aun así, no envíes datos de
   clientes ni claves en estos eventos: viajan por ntfy.sh. Sin eventos, el monitor funciona igual.
+
+</details>
 
 ## Uso diario
 
@@ -227,6 +275,9 @@ dura unos segundos; con el bot caído, de 1 a 5 minutos. Un corte de uno o dos m
 
 ## Dónde está el estado
 
+<details>
+<summary>La rama <code>estado</code> y cómo empezar de cero</summary>
+
 En la rama **`estado`**, que solo contiene `estado.json`: así el historial de `main` no se llena de
 «Actualiza estado» y tus cambios nunca chocan con los del monitor. El monitor la lee al empezar cada ejecución
 (nunca un estado viejo) y solo hace commit si cambia; si alguien la movió mientras tanto, no la pisa: la
@@ -236,13 +287,23 @@ Para empezar de cero (por ejemplo, tras tener el monitor desactivado mucho tiemp
 siguiente ejecución la vuelve a crear. Si vienes de una versión anterior, el `estado.json` de `main` ya no se
 usa y la primera ejecución empieza de cero.
 
+</details>
+
 ## Que no se apague solo
+
+<details>
+<summary>El latido mensual</summary>
 
 GitHub desactiva los cron de los repositorios públicos tras 60 días sin actividad. Si `main` lleva 25 días sin
 ningún commit, el monitor hace uno que solo actualiza `.github/latido`. Con Cloud Scheduler da igual: lanza el
 workflow por su cuenta.
 
+</details>
+
 ## Problemas frecuentes
+
+<details>
+<summary>Síntomas y soluciones</summary>
 
 | Síntoma | Causa y solución |
 |---|---|
@@ -253,6 +314,8 @@ workflow por su cuenta.
 | Llegan avisos estando el bot encendido | Comprueba que `/salud` responde desde fuera de tu red con `{"estado": "ok"}`. |
 | «No se pudo guardar el estado» | Alguien cambió la rama `estado` durante la ejecución. La siguiente ejecución parte del estado nuevo. |
 
+</details>
+
 ## Contenido
 
 | Archivo | Qué es |
@@ -262,4 +325,5 @@ workflow por su cuenta.
 | `.github/workflows/monitor.yml` | Cuándo y cómo se ejecuta el monitor |
 | `.github/workflows/tests.yml` | Tests en cada push (Python 3.10 y 3.13) |
 | `tests/` | Tests de `monitor.py` y de `scripts/workflow.sh` |
+| `docs/img/` | Correos de ejemplo de este README (datos ficticios) |
 | `estado.json` (rama `estado`) | Último estado conocido (lo actualiza el propio workflow) |
