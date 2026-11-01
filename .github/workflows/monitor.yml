@@ -3,10 +3,11 @@ name: Bot sync monitor
 on:
   schedule:
     - cron: "3-59/10 * * * *"   # respaldo de Cloud Scheduler; fuera de la hora en punto, que GitHub satura
-  workflow_dispatch:          # botón «Run workflow» o «gh workflow run monitor.yml» para probar
+  workflow_dispatch:          # botón «Run workflow», Cloud Scheduler o «gh workflow run monitor.yml»
 
 permissions:
-  contents: write             # solo para guardar estado.json en este repositorio
+  contents: write             # guardar estado.json en la rama «estado» (y el latido en main si no hay actividad)
+  actions: read               # saber cuándo fue la ejecución anterior, para detectar huecos sin comprobaciones
 
 concurrency:
   group: monitor              # una comprobación detrás de otra: nunca dos escribiendo el estado a la vez
@@ -15,10 +16,22 @@ concurrency:
 jobs:
   comprobar:
     runs-on: ubuntu-latest
-    timeout-minutes: 8           # una comprobación y, si falla, su confirmación 2 minutos después
+    timeout-minutes: 12          # dos comprobaciones (hasta 2,5 min cada una) y la espera de CONFIRMAR (hasta 4 min)
     steps:
-      # Fijada a un commit concreto (v4): un cambio en la acción no puede llegar a los secretos sin revisarlo.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # Fijada a un commit concreto (v7.0.1): un cambio en la acción no puede llegar a los secretos sin revisarlo.
+      # Sin credenciales guardadas: el token solo lo usa scripts/workflow.sh, nunca monitor.py.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref_name }}  # lo último de la rama, no el commit del momento en que se lanzó
+          persist-credentials: false
+
+      - name: Traer el estado
+        id: traer
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          bash scripts/workflow.sh traer "$RUNNER_TEMP/estado.json"
+          echo "anterior=$(bash scripts/workflow.sh anterior)" >> "$GITHUB_OUTPUT"
 
       - name: Comprobar el bot
         env:
@@ -34,20 +47,28 @@ jobs:
           NTFY_TEMA: ${{ secrets.NTFY_TEMA }}
           PAUSA_HASTA: ${{ vars.PAUSA_HASTA }}
           HORAS_SILENCIO: ${{ vars.HORAS_SILENCIO }}
-        run: python3 monitor.py --estado estado.json
+          CONFIRMAR: ${{ vars.CONFIRMAR }}
+          ULTIMA_EJECUCION: ${{ steps.traer.outputs.anterior }}
+        run: python3 monitor.py --estado "$RUNNER_TEMP/estado.json"
 
-      # Solo hay commit si el estado cambia (o una vez cada 25 días): eso mantiene vivo el cron,
-      # que GitHub desactiva en repositorios públicos tras 60 días sin actividad.
+      # Solo hay commit si el estado cambia. Se guarda aunque la comprobación termine en error (p. ej., el correo
+      # no sale): así no se repiten los avisos que sí llegaron. Si no se pudo traer, no se toca nada.
       - name: Guardar el estado
+        if: always() && steps.traer.outcome == 'success'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/workflow.sh guardar "$RUNNER_TEMP/estado.json"
+
+      # Un commit en main si lleva 25 días sin ninguno: GitHub apaga el cron tras 60 días sin actividad.
+      - name: Latido
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/workflow.sh latido
+
+      # Vigila al vigilante: si healthchecks.io deja de recibir este aviso, te escribe él.
+      - name: Avisar a healthchecks.io
         if: always()
-        run: |
-          if git diff --quiet -- estado.json; then echo "Estado sin cambios."; exit 0; fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add estado.json
-          git commit -q -m "Actualiza estado"
-          for intento in 1 2 3; do
-            if git pull -q --rebase && git push -q; then echo "Estado guardado."; exit 0; fi
-            sleep 5
-          done
-          exit 1
+        env:
+          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
+          RESULTADO: ${{ job.status }}
+        run: bash scripts/workflow.sh vigilante
