@@ -1,13 +1,13 @@
 {
  "aviso_bot": "",
  "aviso_sin_comprobar": "",
- "causa": "no_responde",
- "desde": "2026-11-04T13:55:10+00:00",
- "estado": "abajo",
- "fallos": 2,
+ "causa": "",
+ "desde": "2026-11-04T14:00:10+00:00",
+ "estado": "arriba",
+ "fallos": 0,
  "ntfy_ultimo": "",
  "pausa_bot": "",
- "primer_fallo": "2026-11-04T13:55:10+00:00",
+ "primer_fallo": "",
  "recordatorios": 0,
  "sin_comprobar": "",
  "ultimo_correo": "2026-11-04T13:57:51+00:00"
