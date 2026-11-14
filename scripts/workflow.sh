@@ -84,7 +84,7 @@ anterior() {
   curl -fsS -m 15 --retry 2 \
     -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
-    "${GITHUB_API_URL:-https://api.github.com}/repos/$GITHUB_REPOSITORY/actions/workflows/$flujo/runs?status=completed&per_page=5&exclude_pull_requests=true" \
+    "${GITHUB_API_URL:-https://api.github.com}/repos/$GITHUB_REPOSITORY/actions/workflows/$flujo/runs?status=success&per_page=5&exclude_pull_requests=true" \
     | python3 -I "$(dirname "$0")/../monitor.py" --ejecucion-anterior \
     || echo "No se sabe cuándo fue la ejecución anterior." >&2
 }

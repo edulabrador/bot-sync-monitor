@@ -256,10 +256,10 @@ def url_de_salud(callback: str) -> str:
     return urllib.parse.urlunsplit((partes.scheme, partes.netloc, ruta + "/salud", "", ""))
 
 
-def comprobar_salud(url: str, abrir, dormir=time.sleep) -> tuple[str, str]:
-    """('ok' | 'sin_worker' | 'no_responde', detalle). Tres intentos espaciados antes de dar un fallo."""
+def comprobar_salud(url: str, abrir, dormir=time.sleep, intentos: int = INTENTOS) -> tuple[str, str]:
+    """('ok' | 'sin_worker' | 'no_responde', detalle). Reintentos solo para confirmar una caída nueva."""
     resultado = ("no_responde", "")
-    for intento in range(INTENTOS):
+    for intento in range(intentos):
         if intento:
             dormir(ESPERA_ENTRE_INTENTOS)
         try:
@@ -279,23 +279,23 @@ def comprobar_salud(url: str, abrir, dormir=time.sleep) -> tuple[str, str]:
     return resultado
 
 
-def comprobar(entorno: dict, abrir, dormir=time.sleep) -> dict:
+def comprobar(entorno: dict, abrir, dormir=time.sleep, intentos: int = INTENTOS) -> dict:
     """Una comprobación completa: {'ok': bool, 'causa': str, 'detalle': str, 'dominio': str}."""
     callback, causa, detalle = direccion_de_meta(entorno["WHATSAPP_APP_ID"], entorno["WHATSAPP_APP_SECRET"], abrir)
     if not callback:
         return {"ok": False, "causa": causa, "detalle": detalle, "dominio": ""}
     dominio = enmascarar(callback)
-    estado, detalle = comprobar_salud(url_de_salud(callback), abrir, dormir)
+    estado, detalle = comprobar_salud(url_de_salud(callback), abrir, dormir, intentos)
     return {"ok": estado == "ok", "causa": "" if estado == "ok" else estado, "detalle": detalle, "dominio": dominio}
 
 
 def ejecucion_anterior(respuesta, actual: str = "") -> str:
     """Fin de la ejecución anterior del workflow («2026-10-24T00:05:50Z») a partir de la respuesta de la API de
-    GitHub «…/actions/workflows/<archivo>/runs?status=completed», o «» si no la hay. Las canceladas no cuentan:
-    no llegaron a comprobar nada."""
+    GitHub «…/actions/workflows/<archivo>/runs?status=success», o «» si no la hay. Solo cuentan las correctas:
+    una ejecución fallida puede no haber llegado a reservar un runner ni a comprobar el bot."""
     ejecuciones = _objeto(respuesta).get("workflow_runs")
     for ejecucion in map(_objeto, ejecuciones if isinstance(ejecuciones, list) else []):
-        if str(ejecucion.get("id")) != str(actual) and ejecucion.get("conclusion") in ("success", "failure"):
+        if str(ejecucion.get("id")) != str(actual) and ejecucion.get("conclusion") == "success":
             fin = str(ejecucion.get("updated_at") or "")
             return fin if re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", fin) else ""
     return ""
@@ -723,7 +723,10 @@ def ronda(ruta: str, entorno: dict, ahora: datetime, abrir, dormir, smtp, silenc
         _decir(f"En pausa hasta {hora(pausa)} (hora de Madrid). No se comprueba nada.")
         resultado = None
     else:
-        resultado = comprobar(entorno, abrir, dormir)
+        # Una caída ya confirmada no necesita otras dos esperas para seguir considerándose caída.
+        # Un solo intento correcto sigue detectando la recuperación; las caídas nuevas conservan sus reintentos.
+        intentos = 1 if anterior.get("estado") in ("abajo", "apagado") else INTENTOS
+        resultado = comprobar(entorno, abrir, dormir, intentos)
         if resultado["ok"]:
             _decir(f"El bot responde ({resultado['dominio']}).")
         elif resultado["causa"] == "meta":

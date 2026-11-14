@@ -347,13 +347,14 @@ class TestMeta(Base):
 
 
 class TestEjecucionAnterior(Base):
-    def test_salta_la_actual_y_las_canceladas(self):
+    def test_salta_la_actual_las_canceladas_y_los_fallos_de_infraestructura(self):
         respuesta = {"workflow_runs": [
             {"id": 9, "conclusion": "success", "updated_at": "2026-10-24T00:10:00Z"},
             {"id": 8, "conclusion": "cancelled", "updated_at": "2026-10-24T00:06:00Z"},
             {"id": 7, "conclusion": "failure", "updated_at": "2026-10-24T00:05:50Z"},
+            {"id": 6, "conclusion": "success", "updated_at": "2026-10-24T00:00:00Z"},
         ]}
-        self.assertEqual(m.ejecucion_anterior(respuesta, "9"), "2026-10-24T00:05:50Z")
+        self.assertEqual(m.ejecucion_anterior(respuesta, "9"), "2026-10-24T00:00:00Z")
         self.assertEqual(m.ejecucion_anterior(respuesta, ""), "2026-10-24T00:10:00Z")
 
     def test_respuestas_raras(self):
@@ -658,6 +659,25 @@ class TestCorreo(Base):
 # -- Ejecuciones completas -------------------------------------------------------------------------------------
 
 class TestEjecutar(Base):
+    def test_caida_confirmada_y_apagado_no_repiten_esperas(self):
+        e = Escenario(self)
+        e.correr(T0)
+        e.red.salud = urllib.error.URLError("caído")
+        e.correr(T0 + 5 * MIN)
+        self.assertEqual(e.estado["estado"], "abajo")
+        e.dormido.clear()
+        e.correr(T0 + 10 * MIN)
+        self.assertEqual(e.dormido, [])
+        self.assertEqual(e.estado["estado"], "abajo")
+        e.red.evento({"tipo": "pausa"}, recibido=T0 + 11 * MIN)
+        e.correr(T0 + 15 * MIN)
+        self.assertEqual(e.estado["estado"], "apagado")
+        self.assertEqual(e.dormido, [])
+        e.red.salud = (200, {"estado": "ok"})
+        e.correr(T0 + 20 * MIN)
+        self.assertEqual(e.estado["estado"], "arriba")
+        self.assertEqual(len(e.asuntos()), 2)
+
     def test_bot_funcionando(self):
         e = Escenario(self)
         self.assertEqual(e.correr(T0), 0)

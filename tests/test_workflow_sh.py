@@ -170,7 +170,7 @@ class TestWorkflowSh(unittest.TestCase):
                                               "PATH": f"{falso}{os.pathsep}{os.environ.get('PATH', '')}"})
         self.assertEqual(salida.returncode, 0, salida.stderr)
         self.assertEqual(salida.stdout.strip(), "2026-10-24T00:05:50Z")
-        self.assertIn("/repos/alguien/repo/actions/workflows/monitor.yml/runs?status=completed",
+        self.assertIn("/repos/alguien/repo/actions/workflows/monitor.yml/runs?status=success",
                       (self.dir / "args").read_text())
 
     def test_uso(self):

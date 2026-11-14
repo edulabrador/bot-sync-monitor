@@ -53,7 +53,8 @@ flowchart LR
 1. Pregunta a Meta, **solo lectura**, la suscripción de tu app (`GET /{APP_ID}/subscriptions`) y toma la
    dirección activa de WhatsApp (`whatsapp_business_account`) con el campo `messages`. Las suscripciones de
    Messenger o Instagram, que también tienen ese campo, no cuentan.
-2. Llama a esa dirección cambiando `/whatsapp` por `/salud` (3 intentos separados 20 segundos).
+2. Llama a esa dirección cambiando `/whatsapp` por `/salud` (3 intentos separados 20 segundos para una caída
+   nueva; si ya está caído o apagado, un solo intento por ejecución, sin esperas adicionales).
 3. Si falla, lo **confirma 2 minutos después** en la misma ejecución (evita falsas alarmas por cortes de un
    minuto). Avisa **solo cuando cambia el estado**:
    - 🔴 «El bot no responde», con la causa probable y qué hacer.
@@ -186,6 +187,14 @@ Cloud con facturación activada.
    Logging muestra un error 401, el token está mal pegado o ha caducado: regenéralo y vuelve a pegarlo.
 
 Pon en tu calendario renovar el token antes de que caduque (el paso 6 te avisa si se te olvida).
+Configura dos reintentos del lanzador, con esperas de 30 a 60 segundos y un plazo de petición de 30 segundos,
+para fallos HTTP al contactar con GitHub. Si GitHub acepta el lanzamiento y después falla internamente, estos
+reintentos no lo detectan: la siguiente ejecución programada vuelve a intentarlo.
+
+Cloud Scheduler solo envía la orden de ejecución. El monitor no permanece encendido: GitHub reserva un runner
+para cada orden y lo libera al terminar. Cada cinco minutos son 288 lanzamientos diarios, 8.640 en 30 días,
+además del respaldo horario. Recortar segundos no elimina esos arranques. Para eliminarlos conservando la
+frecuencia habría que trasladar el script, su estado y sus avisos a otro servicio de ejecución.
 
 ### 6. Vigila al vigilante (recomendado, gratis)
 
@@ -315,6 +324,7 @@ workflow por su cuenta.
 | Síntoma | Causa y solución |
 |---|---|
 | La ejecución termina en rojo y GitHub te escribe «Run failed» | Falta un secreto o el correo no sale: el registro dice cuál. El aviso pendiente se reintenta solo (salvo si ya llegó al móvil). |
+| «Internal server error» antes de empezar los pasos | Fallo interno de GitHub. La siguiente ejecución vuelve a comprobar el bot; se puede reintentar la fallida en Actions. No cuenta como una comprobación correcta al calcular huecos del monitor. |
 | «No puedo comprobar el bot» | Meta lleva 30 minutos sin contestar al monitor: fallo pasajero, o la clave de la app cambió (actualiza `WHATSAPP_APP_SECRET`). |
 | «Meta no tiene ninguna dirección activa» | El webhook de WhatsApp de la app está vacío o sin el campo `messages`: arranca el bot para que lo registre. |
 | No aparecen ejecuciones | Workflow desactivado (actívalo en Actions) o la tarea de Cloud Scheduler da 401 (renueva el token). Con `HEALTHCHECK_URL`, healthchecks.io te avisa. |
