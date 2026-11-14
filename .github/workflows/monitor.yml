@@ -2,7 +2,7 @@ name: Bot sync monitor
 
 on:
   schedule:
-    - cron: "3-59/10 * * * *"   # respaldo de Cloud Scheduler; fuera de la hora en punto, que GitHub satura
+    - cron: "23 * * * *"        # respaldo horario; Cloud Scheduler mantiene las comprobaciones cada 5 min
   workflow_dispatch:          # botón «Run workflow», Cloud Scheduler o «gh workflow run monitor.yml»
 
 permissions:
@@ -15,6 +15,8 @@ concurrency:
 
 jobs:
   comprobar:
+    # Se evalúa antes de reservar el runner: una copia privada no consume minutos por accidente.
+    if: github.event.repository.private == false
     runs-on: ubuntu-latest
     timeout-minutes: 12          # dos comprobaciones (hasta 2,5 min cada una) y la espera de CONFIRMAR (hasta 4 min)
     steps:

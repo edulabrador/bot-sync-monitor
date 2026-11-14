@@ -11,7 +11,7 @@ Cloudflare). Te avisa por **correo** y, si quieres, con una **notificación push
 deja de responder: ordenador apagado o suspendido, programa cerrado, sin internet, túnel caído o Meta
 apuntando a una dirección que ya no existe. Un bot no puede avisar de su propia caída: esto corre fuera.
 
-- **Coste: 0 €.** GitHub Actions es gratis en repositorios públicos, ntfy no necesita cuenta, Google Cloud
+- **GitHub Actions sin coste de cómputo:** runners estándar en un repositorio público. ntfy no necesita cuenta, Google Cloud
   Scheduler (opcional) incluye 3 tareas gratis al mes y healthchecks.io (opcional) tiene plan gratuito.
 - **Sin dependencias:** un script de Python (`monitor.py`, solo biblioteca estándar), un script de shell para
   los pasos de git y un workflow.
@@ -114,6 +114,12 @@ subas nunca un archivo `.env` ni claves: todo lo privado va en el paso 2.
 
 En tu copia, ve a **Actions** y pulsa **«I understand my workflows, go ahead and enable them»**.
 
+El job del monitor exige un repositorio público antes de reservar el runner. Si lo haces privado, las
+comprobaciones se omiten para evitar consumir tu cuota de pago. El workflow de tests sigue disponible.
+No cambies el monitor a un runner de mayor tamaño: esos runners pueden tener coste incluso en repos públicos.
+El importe bruto del panel de facturación no es el cobro: comprueba también descuentos e importe neto.
+Referencia: [facturación de GitHub Actions](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
+
 ### 2. Crea los secretos
 
 **Settings → Secrets and variables → Actions → New repository secret**, uno por fila:
@@ -161,7 +167,8 @@ Todas las notificaciones van con la misma prioridad y la hora delante, para que 
 
 El cron de GitHub no es fiable: en repositorios nuevos o poco activos puede saltarse la mayoría de las
 ejecuciones (en una prueba real hizo 2 de 66 en una noche, y unas 6 al día de las 144 programadas durante una
-semana). Se queda como respaldo y **Google Cloud Scheduler** lanza el monitor cada 5 minutos exactos. La capa
+semana). Se queda como respaldo horario (minuto 23) y **Google Cloud Scheduler** solicita ejecutar el monitor cada 5 minutos.
+GitHub puede retrasar o rechazar una ejecución: no es una garantía de puntualidad. La capa
 gratuita incluye 3 tareas al mes por cuenta de facturación y no gasta créditos; necesitas un proyecto de Google
 Cloud con facturación activada.
 

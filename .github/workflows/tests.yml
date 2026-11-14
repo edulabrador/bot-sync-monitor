@@ -2,7 +2,18 @@ name: Tests
 
 on:
   push:
+    branches-ignore: [estado] # el estado operativo no cambia el código
+    paths:
+      - "monitor.py"
+      - "scripts/**"
+      - "tests/**"
+      - ".github/workflows/**"
   pull_request:               # sin secretos: los tests no los necesitan
+    paths:
+      - "monitor.py"
+      - "scripts/**"
+      - "tests/**"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 permissions:
